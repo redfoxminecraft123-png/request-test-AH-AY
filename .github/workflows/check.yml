@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 */12 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check the API without sending
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -69,6 +74,7 @@ jobs:
           TEACHER_IDS: ${{ vars.TEACHER_IDS || '231,236' }}
           WHATSAPP_GROUP_NAME: ${{ vars.WHATSAPP_GROUP_NAME || 'TTTTT' }}
           WHATSAPP_GROUP_ID: ${{ secrets.WHATSAPP_GROUP_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '0' }}
         run: node src/index.js
 
       - name: Save encrypted state and WhatsApp session
