@@ -150,7 +150,7 @@ async function runPair(config, logger) {
       logger,
     });
     markSessionReady(config);
-    await sleep(3_000);
+    await sleep(5_000);
   } finally {
     await destroyClient(client, logger);
   }

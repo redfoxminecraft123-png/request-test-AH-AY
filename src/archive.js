@@ -323,6 +323,10 @@ async function saveArchive(config, logger) {
     );
     return;
   }
+  if (fs.existsSync(sessionMarker) && !fs.existsSync(authDir)) {
+    logger.warn('Session marker exists without a session directory. Skipping upload.');
+    return;
+  }
 
   const tempPath = path.join(
     os.tmpdir(),
