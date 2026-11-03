@@ -72,6 +72,42 @@ async function waitForGroup(client, config, logger) {
   throw lastError;
 }
 
+async function probePage(client, logger) {
+  const checks = [
+    ['math', () => 1 + 1],
+    ['readyState', () => document.readyState],
+    ['wwebjs', () => typeof window.WWebJS],
+    ['chats', () => window.require('WAWebCollections').Chat.getModelsArray().length],
+    [
+      'group',
+      () => {
+        const chat = window
+          .require('WAWebCollections')
+          .Chat.get(window.require('WAWebWidFactory').createWid('120363434318582634@g.us'));
+        return chat ? String(chat.id._serialized) : 'missing';
+      },
+    ],
+  ];
+
+  for (const [name, fn] of checks) {
+    const started = Date.now();
+    let timer;
+    try {
+      const value = await Promise.race([
+        client.pupPage.evaluate(fn),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timed out')), 15_000);
+        }),
+      ]);
+      logger.info(`probe ${name} = ${value} (${Date.now() - started} ms)`);
+    } catch (error) {
+      logger.warn(`probe ${name} failed after ${Date.now() - started} ms: ${error.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 async function connectToGroup(config, logger) {
   let lastError;
 
@@ -88,6 +124,7 @@ async function connectToGroup(config, logger) {
       await sleep(4_000);
       const pages = await client.pupBrowser.pages();
       if (pages.length > 1) logger.warn(`Chrome restored ${pages.length - 1} extra page(s).`);
+      if (process.env.WA_PROBE === '1') await probePage(client, logger);
       const groupId = await waitForGroup(client, config, logger);
       return { client, groupId };
     } catch (error) {
