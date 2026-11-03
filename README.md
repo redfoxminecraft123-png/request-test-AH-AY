@@ -1,6 +1,6 @@
 # request-test-AH-AY
 
-Checks the two teachers' courses every 12 hours and posts new lesson videos to the WhatsApp group `TTTTT`. If nothing is new it sends `ملقيتش حاجة`.
+Checks the two teachers' courses every 12 hours and posts new lesson videos to the WhatsApp group `TTTTT`. Each teacher gets a separate message, split into parts of 50 videos when needed. If nothing is new it sends `ملقيتش حاجة`.
 
 ## Setup
 

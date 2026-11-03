@@ -2,7 +2,7 @@
 
 const NEW_HEADER = 'لقيت فيديوهات جديدة:';
 const NOTHING_FOUND = 'ملقيتش حاجة';
-const TEACHER_DIVIDER = '------------------------';
+const MAX_VIDEOS_PER_MESSAGE = 50;
 
 function groupVideos(videos) {
   const teachers = new Map();
@@ -39,41 +39,60 @@ function groupVideos(videos) {
   return teachers;
 }
 
-function buildNewVideosMessage(videos) {
-  if (!Array.isArray(videos) || videos.length === 0) return NOTHING_FOUND;
+function buildTeacherMessage(teacher, label) {
+  const courseBlocks = [];
 
-  const teachers = groupVideos(videos);
-  const teacherBlocks = [];
-
-  for (const teacher of teachers.values()) {
-    const courseBlocks = [];
-
-    for (const course of teacher.courses.values()) {
-      const lines = [`*${course.title}*`];
-      for (const lesson of course.lessons.values()) {
-        lines.push(`${lesson.title}:`);
-        const sorted = [...lesson.videos].sort(
-          (a, b) => Number(a.sessionId) - Number(b.sessionId),
-        );
-        for (const video of sorted) {
-          lines.push(`- ${video.title}`);
-          lines.push(video.link);
-        }
-        lines.push('');
+  for (const course of teacher.courses.values()) {
+    const lines = [`*${course.title}*`];
+    for (const lesson of course.lessons.values()) {
+      lines.push(`${lesson.title}:`);
+      const sorted = [...lesson.videos].sort(
+        (a, b) => Number(a.sessionId) - Number(b.sessionId),
+      );
+      for (const video of sorted) {
+        lines.push(`- ${video.title}`);
+        lines.push(video.link);
       }
-      courseBlocks.push(lines.join('\n').trim());
+      lines.push('');
     }
-
-    teacherBlocks.push([`*${teacher.name}*`, ...courseBlocks].join('\n\n'));
+    courseBlocks.push(lines.join('\n').trim());
   }
 
-  return [NEW_HEADER, '', teacherBlocks.join(`\n\n${TEACHER_DIVIDER}\n\n`)].join('\n');
+  return [`*${label}*`, ...courseBlocks].join('\n\n');
 }
 
-function messageForRun({ firstRun, force, videos, newVideos }) {
-  if (force) return buildNewVideosMessage(videos);
-  if (firstRun) return NOTHING_FOUND;
-  return buildNewVideosMessage(newVideos);
+function chunkVideos(videos, size) {
+  const chunks = [];
+  for (let index = 0; index < videos.length; index += size) {
+    chunks.push(videos.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function messagesForRun({ firstRun, force, videos, newVideos }) {
+  const source = force ? videos : newVideos;
+  if (!Array.isArray(source) || source.length === 0) return [NOTHING_FOUND];
+  if (firstRun && !force) return [NOTHING_FOUND];
+
+  const messages = [];
+
+  for (const teacher of groupVideos(source).values()) {
+    const teacherVideos = [];
+    for (const course of teacher.courses.values()) {
+      for (const lesson of course.lessons.values()) {
+        teacherVideos.push(...lesson.videos);
+      }
+    }
+
+    const parts = chunkVideos(teacherVideos, MAX_VIDEOS_PER_MESSAGE);
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = groupVideos(parts[index]).values().next().value;
+      const label = parts.length > 1 ? `${part.name} - part ${index + 1}` : part.name;
+      messages.push(`${NEW_HEADER}\n\n${buildTeacherMessage(part, label)}`);
+    }
+  }
+
+  return messages;
 }
 
 function splitMessage(text, maxLength = 50_000) {
@@ -120,8 +139,7 @@ function messageChunks(text, maxLength = 50_000) {
 module.exports = {
   NEW_HEADER,
   NOTHING_FOUND,
-  buildNewVideosMessage,
-  messageForRun,
+  messagesForRun,
   splitMessage,
   messageChunks,
 };

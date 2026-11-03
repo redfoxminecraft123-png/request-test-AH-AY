@@ -3,8 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  buildNewVideosMessage,
-  messageForRun,
+  messagesForRun,
   splitMessage,
   messageChunks,
   NEW_HEADER,
@@ -27,66 +26,127 @@ function video(overrides) {
 }
 
 test('returns the nothing-found message when there are no videos', () => {
-  assert.equal(buildNewVideosMessage([]), NOTHING_FOUND);
-  assert.equal(buildNewVideosMessage(null), NOTHING_FOUND);
+  assert.deepEqual(
+    messagesForRun({ firstRun: false, force: true, videos: [], newVideos: [] }),
+    [NOTHING_FOUND],
+  );
+  assert.deepEqual(
+    messagesForRun({ firstRun: false, force: false, videos: [], newVideos: [] }),
+    [NOTHING_FOUND],
+  );
 });
 
-test('groups videos by teacher, course and lesson', () => {
-  const text = buildNewVideosMessage([
-    video({ sessionId: '2', title: 'Second video', link: 'https://example.com/two' }),
-    video({ sessionId: '1', title: 'First video', link: 'https://example.com/one' }),
+test('sends one message per teacher, grouped by course and lesson', () => {
+  const messages = messagesForRun({
+    firstRun: false,
+    force: false,
+    videos: [],
+    newVideos: [
+      video({ sessionId: '2', title: 'Second video', link: 'https://example.com/two' }),
+      video({ sessionId: '1', title: 'First video', link: 'https://example.com/one' }),
+      video({
+        sessionId: '3',
+        teacherId: 2,
+        teacherName: 'Teacher Two',
+        courseId: 20,
+        courseTitle: 'Course Two',
+        lessonId: 200,
+        lessonTitle: 'Lesson Two',
+        title: 'Third video',
+        link: 'https://example.com/three',
+      }),
+    ],
+  });
+
+  assert.equal(messages.length, 2);
+
+  const [one, two] = messages;
+  assert.ok(one.startsWith(NEW_HEADER));
+  assert.ok(two.startsWith(NEW_HEADER));
+  assert.match(one, /\*Teacher One\*/);
+  assert.match(one, /\*Course One\*/);
+  assert.match(one, /Lesson One:/);
+  assert.match(one, /- First video\nhttps:\/\/example\.com\/one/);
+  assert.match(one, /- Second video\nhttps:\/\/example\.com\/two/);
+  assert.doesNotMatch(one, /Teacher Two|Third video/);
+  assert.match(two, /\*Teacher Two\*/);
+  assert.match(two, /- Third video\nhttps:\/\/example\.com\/three/);
+  assert.doesNotMatch(two, /Teacher One|First video/);
+
+  assert.ok(one.indexOf('First video') < one.indexOf('Second video'));
+});
+
+test('force send lists every video of each teacher', () => {
+  const all = [
+    video({ sessionId: '1' }),
+    video({ sessionId: '2', title: 'Video Two' }),
+    video({ sessionId: '3', teacherId: 2, teacherName: 'Teacher Two', title: 'Video Three' }),
+  ];
+  const messages = messagesForRun({ firstRun: false, force: true, videos: all, newVideos: [] });
+
+  assert.equal(messages.length, 2);
+  assert.match(messages[0], /Video One/);
+  assert.match(messages[0], /Video Two/);
+  assert.match(messages[1], /Video Three/);
+  assert.doesNotMatch(messages[1], /Video One/);
+});
+
+test('splits a teacher into parts of 50 videos', () => {
+  const many = Array.from({ length: 51 }, (_, index) =>
     video({
-      sessionId: '3',
+      sessionId: String(index + 1),
+      title: `Video ${index + 1}`,
+      link: `https://example.com/${index + 1}`,
+    }),
+  );
+  many.push(
+    video({
+      sessionId: '999',
       teacherId: 2,
       teacherName: 'Teacher Two',
-      courseId: 20,
-      courseTitle: 'Course Two',
-      lessonId: 200,
-      lessonTitle: 'Lesson Two',
-      title: 'Third video',
-      link: 'https://example.com/three',
+      title: 'Other video',
+      link: 'https://example.com/other',
     }),
-  ]);
+  );
 
-  assert.ok(text.startsWith(NEW_HEADER));
-  assert.match(text, /\*Teacher One\*/);
-  assert.match(text, /\*Course One\*/);
-  assert.match(text, /Lesson One:/);
-  assert.match(text, /- First video\nhttps:\/\/example\.com\/one/);
-  assert.match(text, /- Second video\nhttps:\/\/example\.com\/two/);
-  assert.match(text, /\*Teacher Two\*/);
-  assert.match(text, /- Third video\nhttps:\/\/example\.com\/three/);
+  const messages = messagesForRun({
+    firstRun: false,
+    force: true,
+    videos: many,
+    newVideos: [],
+  });
 
-  assert.ok(text.indexOf('First video') < text.indexOf('Second video'));
-  assert.ok(text.indexOf('Teacher One') < text.indexOf('Teacher Two'));
-});
+  assert.equal(messages.length, 3);
+  for (const message of messages) assert.ok(message.startsWith(NEW_HEADER));
 
-test('force send lists every video even when nothing is new', () => {
-  const all = [video({ sessionId: '1' }), video({ sessionId: '2', title: 'Video Two' })];
-  const text = messageForRun({ firstRun: false, force: true, videos: all, newVideos: [] });
-  assert.ok(text.startsWith(NEW_HEADER));
-  assert.match(text, /Video One/);
-  assert.match(text, /Video Two/);
+  assert.match(messages[0], /\*Teacher One - part 1\*/);
+  assert.match(messages[1], /\*Teacher One - part 2\*/);
+  assert.equal((messages[0].match(/https:\/\//g) || []).length, 50);
+  assert.equal((messages[1].match(/https:\/\//g) || []).length, 1);
+  assert.match(messages[2], /\*Teacher Two\*/);
+  assert.doesNotMatch(messages[2], /part/);
 });
 
 test('normal runs keep the nothing-found and new-only behaviour', () => {
   const all = [video({ sessionId: '1' }), video({ sessionId: '2', title: 'Video Two' })];
-  assert.equal(
-    messageForRun({ firstRun: true, force: false, videos: all, newVideos: [] }),
-    NOTHING_FOUND,
+  assert.deepEqual(
+    messagesForRun({ firstRun: true, force: false, videos: all, newVideos: [] }),
+    [NOTHING_FOUND],
   );
-  assert.equal(
-    messageForRun({ firstRun: false, force: false, videos: all, newVideos: [] }),
-    NOTHING_FOUND,
+  assert.deepEqual(
+    messagesForRun({ firstRun: false, force: false, videos: all, newVideos: [] }),
+    [NOTHING_FOUND],
   );
-  const onlyNew = messageForRun({
+
+  const onlyNew = messagesForRun({
     firstRun: false,
     force: false,
     videos: all,
     newVideos: [all[1]],
   });
-  assert.match(onlyNew, /Video Two/);
-  assert.doesNotMatch(onlyNew, /Video One/);
+  assert.equal(onlyNew.length, 1);
+  assert.match(onlyNew[0], /Video Two/);
+  assert.doesNotMatch(onlyNew[0], /Video One/);
 });
 
 test('splits long messages on line boundaries without losing content', () => {

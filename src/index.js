@@ -7,7 +7,7 @@ const { createLogger } = require('./logger');
 const { createApi } = require('./api');
 const { collectVideos } = require('./collect');
 const { loadState, saveState, diffVideos, markVideosSeen } = require('./state');
-const { messageForRun } = require('./message');
+const { messagesForRun } = require('./message');
 const {
   createClient,
   initializeClient,
@@ -185,7 +185,7 @@ async function runCheck(config, logger) {
     return;
   }
 
-  const text = messageForRun({ firstRun, force, videos, newVideos });
+  const messages = messagesForRun({ firstRun, force, videos, newVideos });
 
   if (force) {
     logger.info(`Force send: including all ${videos.length} video(s).`);
@@ -200,8 +200,10 @@ async function runCheck(config, logger) {
     if (process.env.GITHUB_ACTIONS === 'true') {
       logger.info('Message body suppressed in GitHub Actions to keep logs clean.');
     } else {
-      console.log('\n----- message preview -----\n');
-      console.log(text);
+      for (let index = 0; index < messages.length; index += 1) {
+        console.log(`\n----- message ${index + 1}/${messages.length} -----\n`);
+        console.log(messages[index]);
+      }
       console.log('\n----- end preview -----\n');
     }
     return;
@@ -211,7 +213,10 @@ async function runCheck(config, logger) {
   const { client, groupId } = await connectToGroup(config, logger);
   try {
     markSessionReady(config);
-    await sendTextToGroup(client, groupId, text, config.whatsapp, logger);
+    for (let index = 0; index < messages.length; index += 1) {
+      if (index > 0) await sleep(1_500);
+      await sendTextToGroup(client, groupId, messages[index], config.whatsapp, logger);
+    }
   } finally {
     await destroyClient(client, logger);
   }
