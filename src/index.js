@@ -54,7 +54,7 @@ function logErrors(errors, logger) {
 }
 
 const CONNECT_ATTEMPTS = 2;
-const GROUP_LOOKUP_ATTEMPTS = 8;
+const GROUP_LOOKUP_ATTEMPTS = 3;
 
 async function waitForGroup(client, config, logger) {
   let lastError;
@@ -86,6 +86,8 @@ async function connectToGroup(config, logger) {
       // WhatsApp Web reloads once right after login and drops page calls made
       // in that window.
       await sleep(4_000);
+      const pages = await client.pupBrowser.pages();
+      if (pages.length > 1) logger.warn(`Chrome restored ${pages.length - 1} extra page(s).`);
       const groupId = await waitForGroup(client, config, logger);
       return { client, groupId };
     } catch (error) {

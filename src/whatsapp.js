@@ -90,7 +90,7 @@ function createClient(config, logger) {
 
   const launchOptions = {
     headless: true,
-    protocolTimeout: 120_000,
+    protocolTimeout: 60_000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -211,36 +211,27 @@ function initializeClient(client, { mode, phoneNumber = '', timeoutMs, logger })
 }
 
 async function findGroup(client, { groupName, groupId }, logger) {
-  const found = await client.pupPage.evaluate(
-    ({ id, name }) => {
-      const chats = window.require('WAWebCollections').Chat.getModelsArray();
-      const groups = chats.filter((chat) => String(chat.id._serialized).endsWith('@g.us'));
-      const title = (chat) => String(chat.name || chat.formattedTitle || '').trim();
-
-      if (id) {
-        return groups.some((chat) => String(chat.id._serialized) === id) ? id : null;
-      }
-
-      const target = name.trim().toLowerCase();
-      const match =
-        groups.find((chat) => title(chat) === name.trim()) ||
-        groups.find((chat) => title(chat).toLowerCase() === target);
-      return match ? String(match.id._serialized) : null;
-    },
-    { id: groupId || '', name: groupName || '' },
-  );
-
-  if (!found) {
-    throw new GroupNotFoundError(
-      groupId
-        ? `WhatsApp group id "${groupId}" was not found.`
-        : `WhatsApp group "${groupName}" was not found.`,
-    );
+  if (groupId) {
+    logger.info('Using the configured WhatsApp group id.');
+    return groupId;
   }
 
-  logger.info(
-    groupId ? 'Using the configured WhatsApp group id.' : `Found WhatsApp group "${groupName}".`,
-  );
+  const found = await client.pupPage.evaluate((name) => {
+    const chats = window.require('WAWebCollections').Chat.getModelsArray();
+    const groups = chats.filter((chat) => String(chat.id._serialized).endsWith('@g.us'));
+    const title = (chat) => String(chat.name || chat.formattedTitle || '').trim();
+    const target = name.trim().toLowerCase();
+    const match =
+      groups.find((chat) => title(chat) === name.trim()) ||
+      groups.find((chat) => title(chat).toLowerCase() === target);
+    return match ? String(match.id._serialized) : null;
+  }, groupName || '');
+
+  if (!found) {
+    throw new GroupNotFoundError(`WhatsApp group "${groupName}" was not found.`);
+  }
+
+  logger.info(`Found WhatsApp group "${groupName}".`);
   return found;
 }
 
