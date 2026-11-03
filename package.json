@@ -1,0 +1,23 @@
+{
+  "name": "request-test-ah-ay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Watches AE and AH teacher course feeds and sends new lesson video links to a WhatsApp group.",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node src/index.js",
+    "pair": "node src/index.js --pair",
+    "inspect": "node scripts/inspect.js",
+    "state:restore": "node scripts/state-archive.js restore",
+    "state:save": "node scripts/state-archive.js save",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "qrcode-terminal": "0.12.0",
+    "whatsapp-web.js": "1.34.7"
+  }
+}
