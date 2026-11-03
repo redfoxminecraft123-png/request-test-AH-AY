@@ -50,6 +50,18 @@ function prepareProfile(authDir) {
     removePath(path.join(sessionDir, 'Default', name));
   }
 
+  for (const name of [
+    'Cache',
+    'Code Cache',
+    'GPUCache',
+    'DawnGraphiteCache',
+    'DawnWebGPUCache',
+    'Service Worker/CacheStorage',
+    'Service Worker/ScriptCache',
+  ]) {
+    removePath(path.join(sessionDir, 'Default', name));
+  }
+
   const preferencesPath = path.join(sessionDir, 'Default', 'Preferences');
   try {
     const preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
@@ -78,6 +90,7 @@ function createClient(config, logger) {
 
   const launchOptions = {
     headless: true,
+    protocolTimeout: 120_000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
