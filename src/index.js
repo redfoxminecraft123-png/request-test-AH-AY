@@ -85,16 +85,20 @@ function withTimeout(promise, ms, message) {
 async function waitForPage(client, logger) {
   for (let attempt = 1; attempt <= 6; attempt += 1) {
     try {
-      await withTimeout(
-        client.pupPage.evaluate(() => document.readyState),
+      const ready = await withTimeout(
+        client.pupPage.evaluate(
+          () =>
+            document.readyState === 'complete' && typeof window.WWebJS?.getChat === 'function',
+        ),
         10_000,
         'WhatsApp page did not answer',
       );
-      return;
+      if (ready) return;
+      logger.warn('WhatsApp page is still loading. Waiting.');
     } catch (error) {
       logger.warn(`WhatsApp page is not answering yet (${error.message}). Waiting.`);
-      await sleep(5_000);
     }
+    await sleep(5_000);
   }
 
   throw new Error('WhatsApp page did not answer after login.');

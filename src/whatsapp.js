@@ -240,17 +240,67 @@ async function sendTextToGroup(client, groupId, text, whatsappConfig, logger) {
   const chunks = messageChunks(text, whatsappConfig.chunkSize);
 
   for (let index = 0; index < chunks.length; index += 1) {
-    await client.pupPage.evaluate(
-      async (chatId, content) => {
-        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
-        if (!chat) throw new Error(`WhatsApp chat ${chatId} is not available`);
-        await window.WWebJS.sendMessage(chat, content, {});
-      },
-      groupId,
-      chunks[index],
-    );
+    const content = chunks[index];
+    let sent;
+
+    for (let attempt = 1; attempt <= 6 && !sent; attempt += 1) {
+      const result = await client.pupPage.evaluate(
+        async (chatId, body) => {
+          if (typeof window.WWebJS?.getChat !== 'function') {
+            return { ready: false };
+          }
+
+          const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+          if (!chat) return { ready: true, chat: false };
+
+          const messages = () =>
+            chat.msgs && chat.msgs.getModelsArray ? chat.msgs.getModelsArray() : [];
+          const before = messages().length;
+
+          await window.WWebJS.sendMessage(chat, body, { waitUntilMsgSent: true });
+
+          let newest = null;
+          for (let wait = 0; wait < 20; wait += 1) {
+            const outbound = messages()
+              .filter((message) => message && message.id && message.id.fromMe)
+              .sort((left, right) => (right.t || 0) - (left.t || 0));
+            newest = outbound[0] || null;
+            if (messages().length > before && newest && newest.ack >= 1) break;
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+          }
+
+          return {
+            ready: true,
+            chat: true,
+            added: messages().length > before,
+            id: newest && newest.id ? newest.id._serialized : null,
+            ack: newest ? newest.ack : -1,
+          };
+        },
+        groupId,
+        content,
+      );
+
+      if (!result.ready) {
+        logger.warn('WhatsApp page is reloading. Waiting before sending.');
+        await sleep(3_000);
+        continue;
+      }
+      if (!result.chat) {
+        throw new GroupNotFoundError(`WhatsApp chat "${groupId}" is not available.`);
+      }
+      if (!result.added || !(result.ack >= 1)) {
+        throw new Error(
+          `WhatsApp did not accept the message (ack ${result.ack}, added ${result.added}).`,
+        );
+      }
+      sent = result;
+    }
+
+    if (!sent) throw new Error('WhatsApp page did not become ready for sending.');
+
     logger.info(
-      `Sent WhatsApp message part ${index + 1}/${chunks.length} (${chunks[index].length} chars)`,
+      `Sent WhatsApp message part ${index + 1}/${chunks.length} (${content.length} chars, ack ${sent.ack})`,
     );
     if (index < chunks.length - 1) await sleep(1_000);
   }
