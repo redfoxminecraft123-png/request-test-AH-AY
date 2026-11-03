@@ -53,7 +53,7 @@ function logErrors(errors, logger) {
   }
 }
 
-const CONNECT_ATTEMPTS = 2;
+const CONNECT_ATTEMPTS = 3;
 const GROUP_LOOKUP_ATTEMPTS = 3;
 
 async function waitForGroup(client, config, logger) {
