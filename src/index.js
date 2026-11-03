@@ -72,40 +72,32 @@ async function waitForGroup(client, config, logger) {
   throw lastError;
 }
 
-async function probePage(client, logger) {
-  const checks = [
-    ['math', () => 1 + 1],
-    ['readyState', () => document.readyState],
-    ['wwebjs', () => typeof window.WWebJS],
-    ['chats', () => window.require('WAWebCollections').Chat.getModelsArray().length],
-    [
-      'group',
-      () => {
-        const chat = window
-          .require('WAWebCollections')
-          .Chat.get(window.require('WAWebWidFactory').createWid('120363434318582634@g.us'));
-        return chat ? String(chat.id._serialized) : 'missing';
-      },
-    ],
-  ];
+function withTimeout(promise, ms, message) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
-  for (const [name, fn] of checks) {
-    const started = Date.now();
-    let timer;
+async function waitForPage(client, logger) {
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
     try {
-      const value = await Promise.race([
-        client.pupPage.evaluate(fn),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('timed out')), 15_000);
-        }),
-      ]);
-      logger.info(`probe ${name} = ${value} (${Date.now() - started} ms)`);
+      await withTimeout(
+        client.pupPage.evaluate(() => document.readyState),
+        10_000,
+        'WhatsApp page did not answer',
+      );
+      return;
     } catch (error) {
-      logger.warn(`probe ${name} failed after ${Date.now() - started} ms: ${error.message}`);
-    } finally {
-      clearTimeout(timer);
+      logger.warn(`WhatsApp page is not answering yet (${error.message}). Waiting.`);
+      await sleep(5_000);
     }
   }
+
+  throw new Error('WhatsApp page did not answer after login.');
 }
 
 async function connectToGroup(config, logger) {
@@ -124,7 +116,7 @@ async function connectToGroup(config, logger) {
       await sleep(4_000);
       const pages = await client.pupBrowser.pages();
       if (pages.length > 1) logger.warn(`Chrome restored ${pages.length - 1} extra page(s).`);
-      if (process.env.WA_PROBE === '1') await probePage(client, logger);
+      await waitForPage(client, logger);
       const groupId = await waitForGroup(client, config, logger);
       return { client, groupId };
     } catch (error) {

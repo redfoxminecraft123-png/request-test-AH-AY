@@ -14,6 +14,7 @@ test('treats puppeteer page errors as transient', () => {
     'Protocol error (Runtime.callFunctionOn): Session closed',
     'Execution context was destroyed.',
     'Promise was collected',
+    'WhatsApp page did not answer after login.',
   ]) {
     assert.equal(isTransientClientError(new Error(message)), true, message);
   }

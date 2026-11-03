@@ -77,6 +77,7 @@ const TRANSIENT_PATTERNS = [
   'detached Frame',
   'Promise was collected',
   'Protocol error',
+  'did not answer',
 ];
 
 function isTransientClientError(error) {
