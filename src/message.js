@@ -70,6 +70,12 @@ function buildNewVideosMessage(videos) {
   return [NEW_HEADER, '', teacherBlocks.join(`\n\n${TEACHER_DIVIDER}\n\n`)].join('\n');
 }
 
+function messageForRun({ firstRun, force, videos, newVideos }) {
+  if (force) return buildNewVideosMessage(videos);
+  if (firstRun) return NOTHING_FOUND;
+  return buildNewVideosMessage(newVideos);
+}
+
 function splitMessage(text, maxLength = 50_000) {
   if (!Number.isFinite(maxLength) || maxLength < 1_000) {
     throw new Error('maxLength must be at least 1000');
@@ -115,6 +121,7 @@ module.exports = {
   NEW_HEADER,
   NOTHING_FOUND,
   buildNewVideosMessage,
+  messageForRun,
   splitMessage,
   messageChunks,
 };

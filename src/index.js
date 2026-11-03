@@ -7,12 +7,12 @@ const { createLogger } = require('./logger');
 const { createApi } = require('./api');
 const { collectVideos } = require('./collect');
 const { loadState, saveState, diffVideos, markVideosSeen } = require('./state');
-const { buildNewVideosMessage, NOTHING_FOUND } = require('./message');
+const { messageForRun } = require('./message');
 const {
   createClient,
   initializeClient,
   findGroup,
-  sendMessageToChat,
+  sendTextToGroup,
   destroyClient,
   isTransientClientError,
 } = require('./whatsapp');
@@ -53,7 +53,24 @@ function logErrors(errors, logger) {
   }
 }
 
-const CONNECT_ATTEMPTS = 3;
+const CONNECT_ATTEMPTS = 2;
+const GROUP_LOOKUP_ATTEMPTS = 8;
+
+async function waitForGroup(client, config, logger) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= GROUP_LOOKUP_ATTEMPTS; attempt += 1) {
+    try {
+      return await findGroup(client, config.whatsapp, logger);
+    } catch (error) {
+      lastError = error;
+      logger.warn(`WhatsApp chat list is not ready yet (${error.message}). Waiting.`);
+      await sleep(5_000);
+    }
+  }
+
+  throw lastError;
+}
 
 async function connectToGroup(config, logger) {
   let lastError;
@@ -66,11 +83,11 @@ async function connectToGroup(config, logger) {
         timeoutMs: config.whatsapp.readyTimeoutMs,
         logger,
       });
-      // WhatsApp Web reloads itself once right after login, which kills any
-      // page call made in that window.
+      // WhatsApp Web reloads once right after login and drops page calls made
+      // in that window.
       await sleep(4_000);
-      const chat = await findGroup(client, config.whatsapp, logger);
-      return { client, chat };
+      const groupId = await waitForGroup(client, config, logger);
+      return { client, groupId };
     } catch (error) {
       lastError = error;
       await destroyClient(client, logger);
@@ -115,15 +132,16 @@ async function runCheck(config, logger) {
   }
 
   const { firstRun, newVideos } = diffVideos(state, videos);
+  const force = config.forceSend;
 
-  if (firstRun && errors.length > 0) {
+  if (firstRun && errors.length > 0 && !force) {
     logErrors(errors, logger);
     throw new Error(
       `Refusing to seed the first-run baseline because collection was incomplete (${errors.length} error(s)). The next scheduled run will retry.`,
     );
   }
 
-  if (!firstRun && errors.length > 0 && newVideos.length === 0) {
+  if (!firstRun && !force && errors.length > 0 && newVideos.length === 0) {
     logErrors(errors, logger);
     logger.error(
       'Collection was incomplete and no new videos were confirmed. Not sending a potentially misleading "nothing found" message.',
@@ -132,9 +150,11 @@ async function runCheck(config, logger) {
     return;
   }
 
-  const text = firstRun ? NOTHING_FOUND : buildNewVideosMessage(newVideos);
+  const text = messageForRun({ firstRun, force, videos, newVideos });
 
-  if (firstRun) {
+  if (force) {
+    logger.info(`Force send: including all ${videos.length} video(s).`);
+  } else if (firstRun) {
     logger.info(`First run: seeding ${videos.length} existing video(s) as already seen.`);
   } else {
     logger.info(`New video(s) detected: ${newVideos.length}.`);
@@ -153,10 +173,10 @@ async function runCheck(config, logger) {
   }
 
   clearSessionMarker(config);
-  const { client, chat } = await connectToGroup(config, logger);
+  const { client, groupId } = await connectToGroup(config, logger);
   try {
     markSessionReady(config);
-    await sendMessageToChat(chat, text, config.whatsapp, logger);
+    await sendTextToGroup(client, groupId, text, config.whatsapp, logger);
   } finally {
     await destroyClient(client, logger);
   }

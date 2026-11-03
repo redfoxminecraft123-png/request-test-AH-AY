@@ -60,6 +60,7 @@ function loadConfig() {
 
   return {
     mode,
+    forceSend: env('FORCE_SEND') === '1',
     root: ROOT,
     runtimeDir,
     stateFile: path.join(runtimeDir, 'state.json'),

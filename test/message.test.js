@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildNewVideosMessage,
+  messageForRun,
   splitMessage,
   messageChunks,
   NEW_HEADER,
@@ -58,6 +59,34 @@ test('groups videos by teacher, course and lesson', () => {
 
   assert.ok(text.indexOf('First video') < text.indexOf('Second video'));
   assert.ok(text.indexOf('Teacher One') < text.indexOf('Teacher Two'));
+});
+
+test('force send lists every video even when nothing is new', () => {
+  const all = [video({ sessionId: '1' }), video({ sessionId: '2', title: 'Video Two' })];
+  const text = messageForRun({ firstRun: false, force: true, videos: all, newVideos: [] });
+  assert.ok(text.startsWith(NEW_HEADER));
+  assert.match(text, /Video One/);
+  assert.match(text, /Video Two/);
+});
+
+test('normal runs keep the nothing-found and new-only behaviour', () => {
+  const all = [video({ sessionId: '1' }), video({ sessionId: '2', title: 'Video Two' })];
+  assert.equal(
+    messageForRun({ firstRun: true, force: false, videos: all, newVideos: [] }),
+    NOTHING_FOUND,
+  );
+  assert.equal(
+    messageForRun({ firstRun: false, force: false, videos: all, newVideos: [] }),
+    NOTHING_FOUND,
+  );
+  const onlyNew = messageForRun({
+    firstRun: false,
+    force: false,
+    videos: all,
+    newVideos: [all[1]],
+  });
+  assert.match(onlyNew, /Video Two/);
+  assert.doesNotMatch(onlyNew, /Video One/);
 });
 
 test('splits long messages on line boundaries without losing content', () => {

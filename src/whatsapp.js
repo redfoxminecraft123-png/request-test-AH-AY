@@ -26,8 +26,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function cleanStaleLocks(authDir) {
+function removePath(target) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch {}
+}
+
+function prepareProfile(authDir) {
   const sessionDir = path.join(authDir, `session-${CLIENT_ID}`);
+
   for (const name of [
     'SingletonLock',
     'SingletonCookie',
@@ -35,18 +42,20 @@ function cleanStaleLocks(authDir) {
     'lockfile',
     'DevToolsActivePort',
   ]) {
-    const target = path.join(sessionDir, name);
-    try {
-      const stat = fs.lstatSync(target);
-      if (stat.isDirectory()) {
-        fs.rmSync(target, { recursive: true, force: true });
-      } else {
-        fs.rmSync(target, { force: true });
-      }
-    } catch {
-      // Nothing to clean up.
-    }
+    removePath(path.join(sessionDir, name));
   }
+
+  // Restored tabs load WhatsApp Web again and take the single-window lock.
+  for (const name of ['Current Session', 'Current Tabs', 'Last Session', 'Last Tabs', 'Sessions']) {
+    removePath(path.join(sessionDir, 'Default', name));
+  }
+
+  const preferencesPath = path.join(sessionDir, 'Default', 'Preferences');
+  try {
+    const preferences = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
+    preferences.profile = { ...preferences.profile, exit_type: 'Normal' };
+    fs.writeFileSync(preferencesPath, JSON.stringify(preferences));
+  } catch {}
 }
 
 const TRANSIENT_PATTERNS = [
@@ -65,7 +74,7 @@ function isTransientClientError(error) {
 
 function createClient(config, logger) {
   fs.mkdirSync(config.authDir, { recursive: true });
-  cleanStaleLocks(config.authDir);
+  prepareProfile(config.authDir);
 
   const launchOptions = {
     headless: true,
@@ -76,6 +85,8 @@ function createClient(config, logger) {
       '--disable-gpu',
       '--no-first-run',
       '--no-default-browser-check',
+      '--disable-session-crashed-bubble',
+      '--hide-crash-restore-bubble',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-renderer-backgrounding',
@@ -187,43 +198,52 @@ function initializeClient(client, { mode, phoneNumber = '', timeoutMs, logger })
 }
 
 async function findGroup(client, { groupName, groupId }, logger) {
-  if (groupId) {
-    let chat;
-    try {
-      chat = await client.getChatById(groupId);
-    } catch {
-      throw new GroupNotFoundError(`WhatsApp group id "${groupId}" was not found.`);
-    }
-    if (!chat || chat.isGroup !== true) {
-      throw new GroupNotFoundError(`WhatsApp chat "${groupId}" is not a group.`);
-    }
-    logger.info('Using the configured WhatsApp group id.');
-    return chat;
-  }
+  const found = await client.pupPage.evaluate(
+    ({ id, name }) => {
+      const chats = window.require('WAWebCollections').Chat.getModelsArray();
+      const groups = chats.filter((chat) => String(chat.id._serialized).endsWith('@g.us'));
+      const title = (chat) => String(chat.name || chat.formattedTitle || '').trim();
 
-  const chats = await client.getChats();
-  const groups = chats.filter((chat) => chat && chat.isGroup === true);
-  const normalize = (value) => String(value || '').trim().toLowerCase();
-  const target = normalize(groupName);
-  const match =
-    groups.find((chat) => chat.name === groupName) ||
-    groups.find((chat) => normalize(chat.name) === target);
+      if (id) {
+        return groups.some((chat) => String(chat.id._serialized) === id) ? id : null;
+      }
 
-  if (!match) {
+      const target = name.trim().toLowerCase();
+      const match =
+        groups.find((chat) => title(chat) === name.trim()) ||
+        groups.find((chat) => title(chat).toLowerCase() === target);
+      return match ? String(match.id._serialized) : null;
+    },
+    { id: groupId || '', name: groupName || '' },
+  );
+
+  if (!found) {
     throw new GroupNotFoundError(
-      `WhatsApp group "${groupName}" was not found (${groups.length} groups visible to this account).`,
+      groupId
+        ? `WhatsApp group id "${groupId}" was not found.`
+        : `WhatsApp group "${groupName}" was not found.`,
     );
   }
 
-  logger.info(`Found WhatsApp group "${groupName}".`);
-  return match;
+  logger.info(
+    groupId ? 'Using the configured WhatsApp group id.' : `Found WhatsApp group "${groupName}".`,
+  );
+  return found;
 }
 
-async function sendMessageToChat(chat, text, whatsappConfig, logger) {
+async function sendTextToGroup(client, groupId, text, whatsappConfig, logger) {
   const chunks = messageChunks(text, whatsappConfig.chunkSize);
 
   for (let index = 0; index < chunks.length; index += 1) {
-    await chat.sendMessage(chunks[index]);
+    await client.pupPage.evaluate(
+      async (chatId, content) => {
+        const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+        if (!chat) throw new Error(`WhatsApp chat ${chatId} is not available`);
+        await window.WWebJS.sendMessage(chat, content, {});
+      },
+      groupId,
+      chunks[index],
+    );
     logger.info(
       `Sent WhatsApp message part ${index + 1}/${chunks.length} (${chunks[index].length} chars)`,
     );
@@ -233,14 +253,21 @@ async function sendMessageToChat(chat, text, whatsappConfig, logger) {
 
 async function destroyClient(client, logger) {
   if (!client) return;
+  const browser = client.pupBrowser;
   try {
     await Promise.race([
       client.destroy(),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
+      new Promise((resolve) => setTimeout(resolve, 15_000)),
     ]);
   } catch (error) {
     logger.warn(`Could not close the WhatsApp client cleanly: ${error.message}`);
   }
+
+  // A leftover browser keeps the profile locked for the next run.
+  try {
+    const process = browser && browser.process();
+    if (process && process.exitCode === null) process.kill('SIGKILL');
+  } catch {}
 }
 
 module.exports = {
@@ -250,6 +277,6 @@ module.exports = {
   createClient,
   initializeClient,
   findGroup,
-  sendMessageToChat,
+  sendTextToGroup,
   destroyClient,
 };
