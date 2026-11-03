@@ -11,10 +11,22 @@ const { buildNewVideosMessage, NOTHING_FOUND } = require('./message');
 const {
   createClient,
   initializeClient,
-  sendTextToGroup,
+  findGroup,
+  sendMessageToChat,
   destroyClient,
+  isTransientClientError,
 } = require('./whatsapp');
 const { saveArchive } = require('./archive');
+
+process.on('unhandledRejection', (error) => {
+  const message = error && error.message ? error.message : String(error);
+  if (isTransientClientError(error)) {
+    console.warn(`[request-bot] WARN Ignored a WhatsApp client error: ${message}`);
+    return;
+  }
+  console.error(`[request-bot] ERROR ${message}`);
+  process.exitCode = 1;
+});
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,6 +51,40 @@ function logErrors(errors, logger) {
           : `lesson ${error.id} (course ${error.courseId})`;
     logger.error(`Collection error for ${where}: ${error.message}`);
   }
+}
+
+const CONNECT_ATTEMPTS = 3;
+
+async function connectToGroup(config, logger) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt += 1) {
+    const client = createClient(config, logger);
+    try {
+      await initializeClient(client, {
+        mode: 'check',
+        timeoutMs: config.whatsapp.readyTimeoutMs,
+        logger,
+      });
+      // WhatsApp Web reloads itself once right after login, which kills any
+      // page call made in that window.
+      await sleep(4_000);
+      const chat = await findGroup(client, config.whatsapp, logger);
+      return { client, chat };
+    } catch (error) {
+      lastError = error;
+      await destroyClient(client, logger);
+      if (attempt === CONNECT_ATTEMPTS || !isTransientClientError(error)) {
+        throw error;
+      }
+      logger.warn(
+        `WhatsApp connection attempt ${attempt} failed (${error.message}). Retrying with a fresh client.`,
+      );
+      await sleep(5_000);
+    }
+  }
+
+  throw lastError;
 }
 
 async function runCheck(config, logger) {
@@ -107,15 +153,10 @@ async function runCheck(config, logger) {
   }
 
   clearSessionMarker(config);
-  const client = createClient(config, logger);
+  const { client, chat } = await connectToGroup(config, logger);
   try {
-    await initializeClient(client, {
-      mode: 'check',
-      timeoutMs: config.whatsapp.readyTimeoutMs,
-      logger,
-    });
     markSessionReady(config);
-    await sendTextToGroup(client, text, config.whatsapp, logger);
+    await sendMessageToChat(chat, text, config.whatsapp, logger);
   } finally {
     await destroyClient(client, logger);
   }

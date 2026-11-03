@@ -13,7 +13,7 @@ const IV_LEN = 12;
 const TAG_LEN = 16;
 const KEY_LEN = 32;
 const SESSION_MARKER = '.session-ok';
-const ARCHIVE_ENTRIES = ['state.json', 'wwebjs-auth', 'wwebjs-cache', SESSION_MARKER];
+const ARCHIVE_ENTRIES = ['state.json', 'wwebjs-auth', SESSION_MARKER];
 
 function deriveKey(passphrase, salt) {
   return crypto.scryptSync(passphrase, salt, KEY_LEN, {
@@ -83,7 +83,7 @@ function runTar(args) {
 function archiveEntries(runtimeDir) {
   const hasSession = fs.existsSync(path.join(runtimeDir, SESSION_MARKER));
   return ARCHIVE_ENTRIES.filter((name) => {
-    if (!hasSession && (name === 'wwebjs-auth' || name === 'wwebjs-cache')) return false;
+    if (!hasSession && name === 'wwebjs-auth') return false;
     return fs.existsSync(path.join(runtimeDir, name));
   });
 }

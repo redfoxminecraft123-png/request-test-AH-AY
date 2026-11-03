@@ -64,7 +64,6 @@ function loadConfig() {
     runtimeDir,
     stateFile: path.join(runtimeDir, 'state.json'),
     authDir: path.join(runtimeDir, 'wwebjs-auth'),
-    cacheDir: path.join(runtimeDir, 'wwebjs-cache'),
     api: {
       baseUrl: env('API_BASE_URL', 'https://saas.crazyidea.online').replace(/\/+$/, ''),
       authorization: env('API_AUTHORIZATION'),

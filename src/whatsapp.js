@@ -49,9 +49,22 @@ function cleanStaleLocks(authDir) {
   }
 }
 
+const TRANSIENT_PATTERNS = [
+  'Target closed',
+  'Session closed',
+  'Execution context was destroyed',
+  'detached Frame',
+  'Promise was collected',
+  'Protocol error',
+];
+
+function isTransientClientError(error) {
+  const message = String(error && error.message ? error.message : error);
+  return TRANSIENT_PATTERNS.some((pattern) => message.includes(pattern));
+}
+
 function createClient(config, logger) {
   fs.mkdirSync(config.authDir, { recursive: true });
-  fs.mkdirSync(config.cacheDir, { recursive: true });
   cleanStaleLocks(config.authDir);
 
   const launchOptions = {
@@ -77,7 +90,7 @@ function createClient(config, logger) {
   return new Client({
     authStrategy: new LocalAuth({ dataPath: config.authDir, clientId: CLIENT_ID }),
     puppeteer: launchOptions,
-    webVersionCache: { type: 'local', path: config.cacheDir },
+    webVersionCache: { type: 'none' },
   });
 }
 
@@ -206,8 +219,7 @@ async function findGroup(client, { groupName, groupId }, logger) {
   return match;
 }
 
-async function sendTextToGroup(client, text, whatsappConfig, logger) {
-  const chat = await findGroup(client, whatsappConfig, logger);
+async function sendMessageToChat(chat, text, whatsappConfig, logger) {
   const chunks = messageChunks(text, whatsappConfig.chunkSize);
 
   for (let index = 0; index < chunks.length; index += 1) {
@@ -234,9 +246,10 @@ async function destroyClient(client, logger) {
 module.exports = {
   SessionExpiredError,
   GroupNotFoundError,
+  isTransientClientError,
   createClient,
   initializeClient,
   findGroup,
-  sendTextToGroup,
+  sendMessageToChat,
   destroyClient,
 };
