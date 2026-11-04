@@ -24,7 +24,7 @@ npm run pair
 
 Scan the QR in WhatsApp under Linked devices, or put `WHATSAPP_PHONE_NUMBER` in `.env` to use an 8-digit code instead. The encrypted session is uploaded automatically; if not, run `npm run state:save`.
 
-Then run the **Check for new videos** workflow once manually. After that it runs at 00:00 and 12:00 Cairo time.
+Then run the **Check for new videos** workflow once manually. After that it runs at 00:00 and 12:00 Cairo time (UTC+2).
 
 Tick `force_send` when starting the workflow manually to post the full video list even when nothing is new. `dry_run` checks the API without sending.
 
